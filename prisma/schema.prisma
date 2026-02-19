@@ -1,5 +1,5 @@
-// CashUp - Schema Prisma para PostgreSQL
-// Plataforma de microcréditos con credit scoring
+// CashUp - Schema Prisma (según docs/ESQUEMA-TABLAS.md)
+// Plataforma de gestión de préstamos: clientes, préstamos, pagos, mora, scoring, auditoría
 
 generator client {
   provider = "prisma-client-js"
@@ -10,37 +10,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  firstName     String   @map("first_name")
-  lastName      String   @map("last_name")
-  documentId    String   @unique @map("document_id")
-  monthlyIncome Decimal  @map("monthly_income") @db.Decimal(12, 2)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
 
-  creditProfile CreditProfile?
-  loans         Loan[]
-
-  @@map("users")
-}
-
-model CreditProfile {
-  id                String   @id @default(cuid())
-  userId            String   @unique @map("user_id")
-  creditScore       Int      @default(50) @map("credit_score") // 0-100
-  totalDebt         Decimal  @default(0) @map("total_debt") @db.Decimal(12, 2)
-  onTimePayments    Int      @default(0) @map("on_time_payments")
-  latePayments      Int      @default(0) @map("late_payments")
-  lastScoreUpdate   DateTime? @map("last_score_update")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("credit_profiles")
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
 }
 
 enum LoanStatus {
@@ -50,67 +27,497 @@ enum LoanStatus {
   ACTIVE
   PAID
   DEFAULTED
+  REFINANCED
 }
 
-model Loan {
-  id              String     @id @default(cuid())
-  userId          String     @map("user_id")
-  amount          Decimal    @db.Decimal(12, 2)
-  termMonths      Int        @map("term_months")
-  interestRate    Decimal    @map("interest_rate") @db.Decimal(5, 4)
-  monthlyPayment  Decimal    @map("monthly_payment") @db.Decimal(12, 2)
-  totalToPay      Decimal    @map("total_to_pay") @db.Decimal(12, 2)
-  status          LoanStatus @default(PENDING)
-  creditScoreAt   Int?       @map("credit_score_at")
-  rejectionReason String?    @map("rejection_reason")
-  approvedAt      DateTime?  @map("approved_at")
-  disbursedAt     DateTime?  @map("disbursed_at")
-  dueDate         DateTime?  @map("due_date")
-  createdAt       DateTime   @default(now()) @map("created_at")
-  updatedAt       DateTime   @updatedAt @map("updated_at")
+enum InterestType {
+  SIMPLE
+  COMPOUND
+}
 
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  schedule     AmortizationItem[]
-  payments     Payment[]
+enum InstallmentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ChargeType {
+  COMMISSION
+  INSURANCE
+  ADMIN_FEE
+  OTHER
+}
+
+enum PenaltyCalculationType {
+  PERCENTAGE_ON_BALANCE
+  PERCENTAGE_ON_OVERDUE
+  FLAT_DAILY
+}
+
+enum CollectionActionType {
+  CALL
+  EMAIL
+  VISIT
+  NOTICE
+  LEGAL
+}
+
+enum CreditEvaluationResult {
+  APPROVED
+  REJECTED
+}
+
+enum BackgroundCheckType {
+  JUDICIAL
+  RISK_LIST
+  EXTERNAL_VALIDATION
+}
+
+enum BackgroundCheckResult {
+  PASS
+  FAIL
+  PENDING
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+// ---------------------------------------------------------------------------
+// 1. clients
+// ---------------------------------------------------------------------------
+
+model Client {
+  id           String       @id @default(cuid())
+  documentId   String       @unique @map("document_id")
+  documentType String       @map("document_type")
+  firstName    String       @map("first_name")
+  lastName     String       @map("last_name")
+  email        String       @unique
+  phone        String?
+  monthlyIncome Decimal    @map("monthly_income") @db.Decimal(12, 2)
+  address      String?
+  status       ClientStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  deletedAt    DateTime?    @map("deleted_at")
+
+  loans                 Loan[]
+  payments              Payment[]
+  creditEvaluations     CreditEvaluation[]
+  backgroundChecks      ClientBackgroundCheck[]
+  externalDebts         ExternalDebt[]
+  creditScoreHistory    CreditScoreHistory[]
+  collectionActions     CollectionAction[]
+  creditProfile        ClientCreditProfile?
+
+  @@map("clients")
+}
+
+// ---------------------------------------------------------------------------
+// 9. penalty_policies (antes de loans)
+// ---------------------------------------------------------------------------
+
+model PenaltyPolicy {
+  id              String                 @id @default(cuid())
+  name            String
+  rate            Decimal                @db.Decimal(5, 4)
+  graceDays       Int                    @map("grace_days")
+  calculationType PenaltyCalculationType @map("calculation_type")
+  isDefault       Boolean                @default(false) @map("is_default")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  loans    Loan[]
+  lateFees LateFee[]
+
+  @@map("penalty_policies")
+}
+
+// ---------------------------------------------------------------------------
+// 17. roles (antes de users)
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+// ---------------------------------------------------------------------------
+// 16. users
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String    @map("password_hash")
+  firstName    String     @map("first_name")
+  lastName     String     @map("last_name")
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  deletedAt    DateTime?  @map("deleted_at")
+
+  userRoles         UserRole[]
+  loansApproved     Loan[]              @relation("ApprovedBy")
+  loanRefinances    LoanRefinance[]     @relation("CreatedBy")
+  paymentsCreated   Payment[]           @relation("CreatedBy")
+  collectionActions CollectionAction[]  @relation("CreatedBy")
+  loanHistory       LoanHistory[]       @relation("ChangedBy")
+  creditEvaluations CreditEvaluation[]  @relation("EvaluatedBy")
+  auditLogs         AuditLog[]
+  assignedRoles     UserRole[]          @relation("AssignedBy")
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// 12. credit_evaluations
+// ---------------------------------------------------------------------------
+
+model CreditEvaluation {
+  id           String                @id @default(cuid())
+  clientId     String                @map("client_id")
+  score        Int
+  result       CreditEvaluationResult
+  factors      String?               @db.Text
+  evaluatedAt  DateTime              @map("evaluated_at")
+  evaluatedById String?              @map("evaluated_by_id")
+
+  client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  evaluatedBy User? @relation("EvaluatedBy", fields: [evaluatedById], references: [id])
+  loans    Loan[]
+
+  @@map("credit_evaluations")
+}
+
+// ---------------------------------------------------------------------------
+// 2. loans
+// ---------------------------------------------------------------------------
+
+model Loan {
+  id                   String      @id @default(cuid())
+  clientId             String      @map("client_id")
+  amount               Decimal     @db.Decimal(12, 2)
+  termMonths           Int         @map("term_months")
+  interestRate         Decimal     @map("interest_rate") @db.Decimal(5, 4)
+  interestType         InterestType @default(SIMPLE) @map("interest_type")
+  monthlyPayment       Decimal     @map("monthly_payment") @db.Decimal(12, 2)
+  totalToPay           Decimal     @map("total_to_pay") @db.Decimal(12, 2)
+  status               LoanStatus  @default(PENDING)
+  penaltyPolicyId      String?     @map("penalty_policy_id")
+  creditEvaluationId   String?     @map("credit_evaluation_id")
+  rejectionReason      String?     @map("rejection_reason") @db.Text
+  approvedAt           DateTime?   @map("approved_at")
+  approvedById         String?     @map("approved_by_id")
+  disbursedAt          DateTime?   @map("disbursed_at")
+  dueDate              DateTime?   @map("due_date") @db.Date
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+
+  client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  penaltyPolicy      PenaltyPolicy?      @relation(fields: [penaltyPolicyId], references: [id])
+  creditEvaluation   CreditEvaluation?    @relation(fields: [creditEvaluationId], references: [id])
+  approvedBy         User?                @relation("ApprovedBy", fields: [approvedById], references: [id])
+
+  installments     Installment[]
+  payments         Payment[]
+  loanCharges      LoanCharge[]
+  loanHistory      LoanHistory[]
+  collectionActions CollectionAction[]
+  refinancedAsOriginal LoanRefinance[] @relation("OriginalLoan")
+  refinancedAsNew     LoanRefinance[] @relation("NewLoan")
 
   @@map("loans")
 }
 
-model AmortizationItem {
-  id            String   @id @default(cuid())
-  loanId        String   @map("loan_id")
-  installmentNumber Int  @map("installment_number")
-  dueDate       DateTime @map("due_date")
-  principal     Decimal  @db.Decimal(12, 2)
-  interest      Decimal  @db.Decimal(12, 2)
-  latePenalty   Decimal  @default(0) @map("late_penalty") @db.Decimal(12, 2)
-  totalDue      Decimal  @map("total_due") @db.Decimal(12, 2)
-  paidAmount    Decimal  @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  paidAt        DateTime? @map("paid_at")
-  isOverdue     Boolean  @default(false) @map("is_overdue")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+// ---------------------------------------------------------------------------
+// 3. loan_refinances
+// ---------------------------------------------------------------------------
 
-  loan    Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  payments Payment[]
+model LoanRefinance {
+  id               String   @id @default(cuid())
+  originalLoanId   String   @map("original_loan_id")
+  newLoanId        String   @unique @map("new_loan_id")
+  reason           String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  createdById      String?  @map("created_by_id")
 
-  @@map("amortization_items")
+  originalLoan Loan @relation("OriginalLoan", fields: [originalLoanId], references: [id], onDelete: Cascade)
+  newLoan      Loan @relation("NewLoan", fields: [newLoanId], references: [id], onDelete: Cascade)
+  createdBy    User? @relation("CreatedBy", fields: [createdById], references: [id])
+
+  @@map("loan_refinances")
 }
 
-model Payment {
-  id          String   @id @default(cuid())
-  loanId      String   @map("loan_id")
-  itemId      String?  @map("item_id")
-  amount      Decimal  @db.Decimal(12, 2)
-  appliedToPrincipal Decimal @default(0) @map("applied_to_principal") @db.Decimal(12, 2)
-  appliedToInterest  Decimal @default(0) @map("applied_to_interest") @db.Decimal(12, 2)
-  appliedToPenalty   Decimal @default(0) @map("applied_to_penalty") @db.Decimal(12, 2)
-  isLate      Boolean  @default(false) @map("is_late")
-  paidAt      DateTime @default(now()) @map("paid_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+// ---------------------------------------------------------------------------
+// 4. installments
+// ---------------------------------------------------------------------------
 
-  loan Loan             @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  item AmortizationItem? @relation(fields: [itemId], references: [id])
+model Installment {
+  id                String            @id @default(cuid())
+  loanId            String            @map("loan_id")
+  installmentNumber Int              @map("installment_number")
+  dueDate           DateTime         @map("due_date") @db.Date
+  principal         Decimal          @db.Decimal(12, 2)
+  interest          Decimal          @db.Decimal(12, 2)
+  totalDue          Decimal          @map("total_due") @db.Decimal(12, 2)
+  paidPrincipal     Decimal          @default(0) @map("paid_principal") @db.Decimal(12, 2)
+  paidInterest      Decimal          @default(0) @map("paid_interest") @db.Decimal(12, 2)
+  paidLateFee       Decimal          @default(0) @map("paid_late_fee") @db.Decimal(12, 2)
+  status            InstallmentStatus @default(PENDING)
+  paidAt            DateTime?        @map("paid_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  loan            Loan                @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  paymentApplications PaymentApplication[]
+  lateFees        LateFee[]
+
+  @@map("installments")
+}
+
+// ---------------------------------------------------------------------------
+// 5. payments
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id            String   @id @default(cuid())
+  clientId      String   @map("client_id")
+  loanId        String   @map("loan_id")
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentMethod String   @map("payment_method")
+  reference     String?
+  paidAt        DateTime @map("paid_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdById   String?  @map("created_by_id")
+
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("CreatedBy", fields: [createdById], references: [id])
+  applications PaymentApplication[]
 
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// 6. payment_applications
+// ---------------------------------------------------------------------------
+
+model PaymentApplication {
+  id                   String   @id @default(cuid())
+  paymentId            String   @map("payment_id")
+  installmentId       String   @map("installment_id")
+  amountApplied        Decimal  @map("amount_applied") @db.Decimal(12, 2)
+  appliedToPrincipal   Decimal  @map("applied_to_principal") @db.Decimal(12, 2)
+  appliedToInterest    Decimal  @map("applied_to_interest") @db.Decimal(12, 2)
+  appliedToLateFee     Decimal  @map("applied_to_late_fee") @db.Decimal(12, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  payment     Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  installment Installment @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+
+  @@map("payment_applications")
+}
+
+// ---------------------------------------------------------------------------
+// 7. late_fees
+// ---------------------------------------------------------------------------
+
+model LateFee {
+  id            String    @id @default(cuid())
+  installmentId String    @map("installment_id")
+  amount        Decimal   @db.Decimal(12, 2)
+  periodFrom    DateTime  @map("period_from") @db.Date
+  periodTo      DateTime  @map("period_to") @db.Date
+  policyId      String?   @map("policy_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  installment Installment    @relation(fields: [installmentId], references: [id], onDelete: Cascade)
+  policy      PenaltyPolicy? @relation(fields: [policyId], references: [id])
+
+  @@map("late_fees")
+}
+
+// ---------------------------------------------------------------------------
+// 8. loan_charges
+// ---------------------------------------------------------------------------
+
+model LoanCharge {
+  id          String      @id @default(cuid())
+  loanId      String      @map("loan_id")
+  chargeType  ChargeType  @map("charge_type")
+  description String?     @db.Text
+  amount      Decimal     @db.Decimal(12, 2)
+  appliedAt   DateTime    @default(now()) @map("applied_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@map("loan_charges")
+}
+
+// ---------------------------------------------------------------------------
+// 10. collection_actions
+// ---------------------------------------------------------------------------
+
+model CollectionAction {
+  id         String             @id @default(cuid())
+  clientId   String             @map("client_id")
+  loanId     String?            @map("loan_id")
+  actionType CollectionActionType @map("action_type")
+  outcome    String?            @db.Text
+  note       String?            @db.Text
+  actionDate DateTime          @map("action_date") @db.Date
+  createdById String?          @map("created_by_id")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  loan      Loan?   @relation(fields: [loanId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("CreatedBy", fields: [createdById], references: [id])
+
+  @@map("collection_actions")
+}
+
+// ---------------------------------------------------------------------------
+// 11. loan_history
+// ---------------------------------------------------------------------------
+
+model LoanHistory {
+  id           String   @id @default(cuid())
+  loanId       String   @map("loan_id")
+  fieldChanged String   @map("field_changed")
+  oldValue     String   @map("old_value") @db.Text
+  newValue     String   @map("new_value") @db.Text
+  changedAt    DateTime @map("changed_at")
+  changedById  String?  @map("changed_by_id")
+
+  loan      Loan  @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("ChangedBy", fields: [changedById], references: [id])
+
+  @@map("loan_history")
+}
+
+// ---------------------------------------------------------------------------
+// 13. client_background_checks
+// ---------------------------------------------------------------------------
+
+model ClientBackgroundCheck {
+  id          String               @id @default(cuid())
+  clientId    String               @map("client_id")
+  checkType   BackgroundCheckType  @map("check_type")
+  result      BackgroundCheckResult
+  referenceId String?              @map("reference_id")
+  checkedAt   DateTime             @map("checked_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_background_checks")
+}
+
+// ---------------------------------------------------------------------------
+// 14. external_debts
+// ---------------------------------------------------------------------------
+
+model ExternalDebt {
+  id         String   @id @default(cuid())
+  clientId   String   @map("client_id")
+  source     String?
+  amount     Decimal  @db.Decimal(12, 2)
+  currency   String   @default("PEN")
+  reportedAt DateTime @map("reported_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("external_debts")
+}
+
+// ---------------------------------------------------------------------------
+// 15. credit_score_history
+// ---------------------------------------------------------------------------
+
+model CreditScoreHistory {
+  id        String   @id @default(cuid())
+  clientId  String   @map("client_id")
+  score     Int
+  trigger   String?
+  recordedAt DateTime @map("recorded_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("credit_score_history")
+}
+
+// ---------------------------------------------------------------------------
+// Score actual del cliente (1:1, ver nota en ESQUEMA-TABLAS)
+// ---------------------------------------------------------------------------
+
+model ClientCreditProfile {
+  id                String    @id @default(cuid())
+  clientId          String    @unique @map("client_id")
+  creditScore       Int       @map("credit_score")
+  riskLevel         String?   @map("risk_level") // LOW, MEDIUM, HIGH
+  totalDebt         Decimal   @default(0) @map("total_debt") @db.Decimal(12, 2)
+  onTimePayments    Int       @default(0) @map("on_time_payments")
+  latePayments      Int       @default(0) @map("late_payments")
+  lastCalculatedAt DateTime?  @map("last_calculated_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_credit_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// 18. user_roles
+// ---------------------------------------------------------------------------
+
+model UserRole {
+  userId      String   @map("user_id")
+  roleId      String   @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  assignedById String? @map("assigned_by_id")
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy User? @relation("AssignedBy", fields: [assignedById], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------------------
+// 19. audit_logs
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
 }

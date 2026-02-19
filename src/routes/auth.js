@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const authService = require('../services/authService');
 const { authMiddleware } = require('../middleware/auth');
+const { registerUserUseCase, loginUserUseCase, getCurrentUserUseCase } = require('../container');
 
 const router = express.Router();
 
@@ -26,7 +26,7 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-      const result = await authService.register(req.body);
+      const result = await registerUserUseCase.execute(req.body);
       res.status(201).json(result);
     } catch (e) {
       next(e);
@@ -41,7 +41,7 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-      const result = await authService.login(req.body.email, req.body.password);
+      const result = await loginUserUseCase.execute(req.body.email, req.body.password);
       res.json(result);
     } catch (e) {
       if (e.message === 'Credenciales inválidas') {
@@ -54,13 +54,7 @@ router.post(
 
 router.get('/me', authMiddleware, async (req, res, next) => {
   try {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId },
-      select: { id: true, email: true, firstName: true, lastName: true, documentId: true, monthlyIncome: true },
-      include: { creditProfile: true },
-    });
+    const user = await getCurrentUserUseCase.execute(req.userId);
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json(user);
   } catch (e) {

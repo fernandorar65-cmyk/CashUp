@@ -1,4 +1,4 @@
-const authService = require('../services/authService');
+const { tokenService } = require('../container');
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -7,7 +7,7 @@ function authMiddleware(req, res, next) {
   }
   const token = authHeader.slice(7);
   try {
-    const decoded = authService.verifyToken(token);
+    const decoded = tokenService.verify(token);
     req.userId = decoded.userId;
     req.userEmail = decoded.email;
     next();

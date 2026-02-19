@@ -2,6 +2,33 @@
 
 Plataforma de microcréditos inteligente en Node.js que gestiona el ciclo completo del préstamo: solicitud, evaluación de riesgo (credit scoring), aprobación/rechazo automático, cronograma de amortización, penalidades por mora y actualización del puntaje crediticio.
 
+## Arquitectura DDD
+
+El proyecto sigue **Domain-Driven Design** con capas bien definidas:
+
+```
+src/
+├── domain/                    # Capa de dominio
+│   ├── value-objects/         # CreditScoringConfig
+│   ├── services/              # CreditScoringDomainService, AmortizationDomainService
+│   └── repositories/          # Interfaces (IUserRepository, ILoanRepository, etc.)
+├── application/               # Capa de aplicación (use cases)
+│   └── use-cases/
+│       ├── auth/              # RegisterUser, LoginUser, GetCurrentUser
+│       └── loans/             # RequestLoan, DisburseLoan, RecordPayment, GetLoans, etc.
+├── infrastructure/            # Capa de infraestructura
+│   ├── persistence/           # PrismaUserRepository, PrismaLoanRepository, etc.
+│   └── auth/                  # JwtTokenService, BcryptPasswordHasher
+├── presentation/              # Rutas Express (routes/, middleware/)
+├── container.js               # Composition Root (inyección de dependencias)
+└── config/
+```
+
+- **Domain**: Lógica de negocio pura (scoring, amortización). Sin dependencias externas.
+- **Application**: Orquestación de use cases que coordinan dominio + repositorios.
+- **Infrastructure**: Implementaciones concretas (Prisma, JWT, Bcrypt).
+- **Presentation**: HTTP, validación, control de errores.
+
 ## Stack
 
 - **Node.js** + **Express.js**

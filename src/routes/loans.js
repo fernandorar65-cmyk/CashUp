@@ -1,7 +1,14 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authMiddleware } = require('../middleware/auth');
-const loanService = require('../services/loanService');
+const {
+  requestLoanUseCase,
+  disburseLoanUseCase,
+  recordPaymentUseCase,
+  getLoansUseCase,
+  getLoanByIdUseCase,
+  getCreditProfileUseCase,
+} = require('../container');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -18,7 +25,7 @@ router.post(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-      const result = await loanService.requestLoan(req.userId, req.body);
+      const result = await requestLoanUseCase.execute(req.userId, req.body);
       res.status(201).json(result);
     } catch (e) {
       next(e);
@@ -28,7 +35,7 @@ router.post(
 
 router.post('/:loanId/disburse', async (req, res, next) => {
   try {
-    const loan = await loanService.disburseLoan(req.params.loanId, req.userId);
+    const loan = await disburseLoanUseCase.execute(req.params.loanId, req.userId);
     res.json(loan);
   } catch (e) {
     if (e.message.includes('no encontrado') || e.message.includes('aprobados')) {
@@ -40,7 +47,7 @@ router.post('/:loanId/disburse', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const loans = await loanService.getLoansByUser(req.userId, req.query.status || undefined);
+    const loans = await getLoansUseCase.execute(req.userId, req.query.status || undefined);
     res.json(loans);
   } catch (e) {
     next(e);
@@ -49,7 +56,7 @@ router.get('/', async (req, res, next) => {
 
 router.get('/profile', async (req, res, next) => {
   try {
-    const profile = await loanService.getCreditProfile(req.userId);
+    const profile = await getCreditProfileUseCase.execute(req.userId);
     res.json(profile);
   } catch (e) {
     next(e);
@@ -58,7 +65,7 @@ router.get('/profile', async (req, res, next) => {
 
 router.get('/:loanId', async (req, res, next) => {
   try {
-    const loan = await loanService.getLoanById(req.params.loanId, req.userId);
+    const loan = await getLoanByIdUseCase.execute(req.params.loanId, req.userId);
     if (!loan) return res.status(404).json({ error: 'Préstamo no encontrado' });
     res.json(loan);
   } catch (e) {
@@ -75,7 +82,7 @@ router.post('/:loanId/payments', paymentValidation, async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-    const loan = await loanService.recordPayment(
+    const loan = await recordPaymentUseCase.execute(
       req.userId,
       req.params.loanId,
       req.body.amount,
