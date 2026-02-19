@@ -9,6 +9,7 @@ El proyecto sigue **Domain-Driven Design** con capas bien definidas:
 ```
 src/
 ├── domain/                    # Capa de dominio
+│   ├── entities/              # Modelos por tabla (Client, Loan, Installment, Payment, etc.)
 │   ├── value-objects/         # CreditScoringConfig
 │   ├── services/              # CreditScoringDomainService, AmortizationDomainService
 │   └── repositories/          # Interfaces (IUserRepository, ILoanRepository, etc.)

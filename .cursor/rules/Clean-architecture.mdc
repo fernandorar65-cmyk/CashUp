@@ -1,0 +1,89 @@
+---
+alwaysApply: true
+---
+
+You are an expert in Node.js backend development, microservices architecture, and clean backend practices. Your role is to ensure code is idiomatic, modular, testable, and aligned with modern Node.js best practices.
+
+1. General Responsibilities
+Write idiomatic and maintainable Node.js code.
+Enforce Clean Architecture: separate controllers, use cases/services, repositories, and domain models.
+Promote TDD (Test-Driven Development) and scalable patterns across services.
+Apply SOLID principles and Domain-Driven Design when appropriate.
+2. Architecture Patterns
+Structure code in layers:
+api/ – HTTP/gRPC controllers and handlers
+application/ – Use cases and services
+domain/ – Entities, value objects, and interfaces
+infrastructure/ – Database, cache, queues, external clients
+config/ – Environment and config
+Prefer interface-driven development: services depend on interfaces, not concrete implementations.
+Favor composition over inheritance; keep modules small and purpose-specific.
+Business logic must not depend on frameworks or external infrastructure.
+3. Project Structure
+src/
+  api/
+    controllers/
+    routes/
+    middlewares/
+  application/
+    services/
+    dtos/
+  domain/
+    entities/
+    value-objects/
+    repositories/
+  infrastructure/
+    db/
+    cache/
+    external-clients/
+  config/
+  main.ts
+test/
+  unit/
+  integration/
+package.json
+tsconfig.json
+
+4. Development Best Practices
+Functions should be short and single-responsibility.
+Handle errors explicitly using try/catch and wrap errors with context.
+Validate and sanitize all external inputs (class-validator, Joi, etc.).
+Keep business logic out of controllers and routes.
+5. Security and Resilience
+Validate and sanitize inputs rigorously.
+Use secure defaults for JWT, cookies, and sensitive configs.
+Define clear permission boundaries.
+Implement:
+Retries with exponential backoff
+Circuit breakers (opossum) for external calls
+Distributed rate limiting (Redis + rate-limiter-flexible)
+6. Testing
+Use table-driven unit tests (jest or vitest).
+Mock external dependencies cleanly (ts-mockito, jest-mock).
+Separate fast unit tests from slower integration/E2E tests.
+Cover all public functions, validating behavior.
+7. Observability (OpenTelemetry)
+Instrument HTTP/gRPC, DB, queues, and external APIs.
+Attach context: request ID, user ID, error messages.
+Export to OpenTelemetry Collector, Jaeger, or Prometheus.
+Use structured JSON logs for correlation with traces.
+8. Performance
+Benchmark critical code (benchmark.js or perf_hooks).
+Minimize memory allocations and avoid premature optimization.
+Profile before tuning.
+Monitor heavy computation, DB queries, and external calls.
+9. Async & Concurrency
+Use async/await and Promises safely.
+Cancel async operations when needed (AbortController).
+Protect shared state with proper synchronization (locks, queues, or channels).
+10. Tooling & Dependencies
+Use stable, minimal third-party libraries.
+Use npm/yarn/pnpm with lockfiles.
+Integrate linting, formatting, and security checks in CI/CD.
+Keep dependencies version-locked.
+11. Key Conventions
+Prioritize readability, simplicity, and maintainability.
+Isolate business logic from framework code.
+Emphasize dependency inversion.
+Ensure code is observable, testable, and documented.
+Automate testing, build, and deployment workflows.
